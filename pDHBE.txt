@@ -1,0 +1,195 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+import tensorflow as tf
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+
+# 1. Data Preparation
+data_url = "http://lib.stat.cmu.edu/datasets/boston"
+raw_df = pd.read_csv(data_url, sep=r"\s+", skiprows=22, header=None)
+X = np.hstack([raw_df.values[::2, :], raw_df.values[1::2, :2]])
+y = raw_df.values[1::2, 2]
+
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+scaler = StandardScaler()
+X_train = scaler.fit_transform(X_train)
+X_test = scaler.transform(X_test)
+
+# 2. Build & Train Model
+model = Sequential([
+    Dense(64, activation='relu', input_shape=(13,)),
+    Dense(32, activation='relu'),
+    Dense(1)
+])
+
+model.compile(optimizer='adam', loss='mse', metrics=['mae'])
+
+# Store history to plot learning curves
+history = model.fit(X_train, y_train, epochs=100, validation_split=0.2, batch_size=32, verbose=0)
+
+# 3. Evaluation & Predictions
+y_pred = model.predict(X_test).flatten()
+
+# --- 4. PLOTS ---
+
+plt.figure(figsize=(12, 5))
+
+# Plot 1: Training Loss (Learning Curve)
+plt.subplot(1, 2, 1)
+plt.plot(history.history['loss'], label='Train Loss')
+plt.plot(history.history['val_loss'], label='Val Loss')
+plt.title('Model Loss (MSE)')
+plt.xlabel('Epochs')
+plt.ylabel('Loss')
+plt.legend()
+
+# Plot 2: Actual vs Predicted
+plt.subplot(1, 2, 2)
+plt.scatter(y_test, y_pred, alpha=0.6, color='darkblue')
+plt.plot([y_test.min(), y_test.max()], [y_test.min(), y_test.max()], 'r--', lw=2) # Diagonal line
+plt.title('Actual vs Predicted Prices')
+plt.xlabel('Actual Price')
+plt.ylabel('Predicted Price')
+
+plt.tight_layout()
+plt.show()
+
+# Final Metrics
+print(f"Final Test MAE: {model.evaluate(X_test, y_test, verbose=0)[1]:.2f}")
+
+import sklearn 
+new_data = sklearn.preprocessing.StandardScaler().fit_transform(([[0.1, 10.0, 
+5.0, 0, 0.4, 6.0, 50, 6.0, 1, 400, 20, 300, 10]])) 
+prediction = model.predict(new_data) 
+print("Predicted house price:", prediction) 
+
+
+================================================================================================================================
+
+!pip install nvcc4jupyter
+#load_ext nvcc4jupyter
+
+!nvidia-smi
+
+%%cuda
+#include<iostream>
+#include<cuda.h>
+#include<cstdlib>
+#include<cmath>
+
+using namespace std;
+
+#define BLOCK_SIZE 18
+__global__ void mulMat(int *a, int *b,int *c, int m, int n, int k){
+    int row=blockIdx.y*blockDim.y+threadIdx.y;
+    int col=blockIdx.x*blockDim.x+threadIdx.x;
+    int s=0;
+    if(row<m && col<n){
+        int sum=0;
+        for(int j=0;j<k;j++){
+            sum=sum+a[row*k+j] * b[j*n+col];
+        }
+        c[row*n+col]=sum;
+    }
+}
+
+int main(){
+    int m=3,k=2,n=3;
+    int a[]={1,2,3,4,5,6};
+    int b[]={1,2,3,4,5,6};
+    int *c=new int[m*n];
+
+    int *d_a,*d_b,*d_c;
+    cudaMalloc(&d_a,m*k*sizeof(int));
+    cudaMalloc(&d_b,k*n*sizeof(int));
+    cudaMalloc(&d_c,m*n*sizeof(int));
+
+    dim3 dimGrid((n+BLOCK_SIZE)/BLOCK_SIZE,(m+BLOCK_SIZE)/BLOCK_SIZE);
+    dim3 dimBlock(BLOCK_SIZE,BLOCK_SIZE);
+
+    cudaMemcpy(d_a,a,m*k*sizeof(int),cudaMemcpyHostToDevice);
+    cudaMemcpy(d_b,b,k*n*sizeof(int),cudaMemcpyHostToDevice);
+
+    mulMat<<<dimGrid,dimBlock>>>(d_a,d_b,d_c,m,n,k);
+
+    cudaMemcpy(c,d_c,m*n*sizeof(int),cudaMemcpyDeviceToHost);
+    for(int i=0;i<m;i++){
+        for(int j=0;j<n;j++){
+            cout<<c[i*n+j]<<" ";
+        }
+        cout<<endl;
+    }
+    cudaFree(d_a);
+    cudaFree(d_b);
+    cudaFree(d_c);
+    return 0;
+
+}
+
+================================================================================================================================
+
+%%cuda
+#include<iostream>
+#include<cuda.h>
+#include<cstdlib>
+#include<cmath>
+using namespace std;
+
+#define BLOCK_SIZE 16
+
+void add_cpu(int* a,int* b, int* c,int n){
+    for(int i=0;i<n;i++){
+        c[i]=a[i]+b[i];
+    }
+}
+
+__global__ void add_gpu(int* a,int *b, int* c,int n){
+    int tid=blockIdx.x * blockDim.x + threadIdx.x;
+    if(tid<n){
+        c[tid]=a[tid]+b[tid];
+    }
+}
+
+void print_array(int* arr, int n) {
+    for (int i = 0; i < n; i++) {
+        cout << arr[i] << " ";
+    }
+    cout << endl;
+}
+
+int main(){
+    int size=4;
+    int a[]={1,2,3,4};
+    int b[]={5,6,7,8};
+
+    int *c_gpu=new int[4];
+    int *c_cpu=new int[4];
+
+    int *d_a,*d_b,*d_result;
+
+    cudaMalloc(&d_a, size*sizeof(int));
+    cudaMalloc(&d_b, size*sizeof(int));
+    cudaMalloc(&d_result, size*sizeof(int));
+
+    dim3 dimGrid((size + BLOCK_SIZE-1)/BLOCK_SIZE);
+    dim3 dimBlock(BLOCK_SIZE);
+
+    cudaMemcpy(d_a,a,size*sizeof(int),cudaMemcpyHostToDevice);
+    cudaMemcpy(d_b,b,size*sizeof(int),cudaMemcpyHostToDevice);
+
+    add_gpu<<<dimGrid,dimBlock>>>(d_a,d_b,d_result,size);
+
+    cudaMemcpy(c_gpu,d_result,size*sizeof(int),cudaMemcpyDeviceToHost);
+    cout<<"GPU result :";
+    print_array(c_gpu, size);
+
+    return 0;
+}
+
+
+
